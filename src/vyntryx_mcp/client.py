@@ -56,6 +56,32 @@ def resolve_base(flag: str | None, store: Store) -> str:
     return check_base_url(url)
 
 
+_ACCESS_ENV = ("VYNTRYX_ACCESS_CLIENT_ID", "VYNTRYX_ACCESS_CLIENT_SECRET")
+GATEWAY_HINT = ("blocked by the access gateway: set VYNTRYX_ACCESS_CLIENT_ID and VYNTRYX_ACCESS_CLIENT_SECRET "
+                "(your Vyntryx administrator issues them) and run `vyntryx-mcp login` again")
+
+
+def access_headers(store: Store, base: str) -> dict[str, str]:
+    """Cloudflare Access service-token headers for this server, if the deployment uses them. Environment wins over the
+    stored copy; they are only ever sent to `base` (redirects are never followed), never logged."""
+    cid = os.environ.get(_ACCESS_ENV[0]) or store.get(base, "access_id")
+    sec = os.environ.get(_ACCESS_ENV[1]) or store.get(base, "access_secret")
+    return {"CF-Access-Client-Id": cid, "CF-Access-Client-Secret": sec} if cid and sec else {}
+
+
+def _gateway_blocked(r: httpx.Response) -> bool:
+    """403/redirect from the Cloudflare gateway or the origin's own access guard (not an application error)."""
+    if r.status_code in (301, 302, 303, 307, 308):
+        return "cloudflareaccess.com" in (r.headers.get("location") or "")
+    if r.status_code != 403:
+        return False
+    try:
+        body = r.json()
+    except ValueError:
+        return "cloudflare" in (r.headers.get("server") or "").lower()
+    return isinstance(body, dict) and body.get("detail") == "Access denied"
+
+
 def _error_code(r: httpx.Response) -> str:
     try:
         body = r.json()
@@ -76,9 +102,11 @@ def device_login(base: str, store: Store, say=print, *, sleep=None, monotonic=No
     key = dpop.new_key()
     jwk = dpop.public_jwk(key)
     try:
-        with httpx.Client(timeout=30, follow_redirects=False) as http:
+        with httpx.Client(timeout=30, follow_redirects=False, headers=access_headers(store, base)) as http:
             r = http.post(f"{base}/api/auth/device/code", json={"client_id": CLIENT_ID, "scope": SCOPE, "dpop_jwk": jwk})
             if r.status_code != 200:
+                if _gateway_blocked(r):
+                    raise LoginError(GATEWAY_HINT)
                 raise LoginError(f"server refused the login request ({_error_code(r)})")
             d = r.json()
             say(f"To sign in, open {d['verification_uri']} and enter the code {d['user_code']}")
@@ -94,6 +122,8 @@ def device_login(base: str, store: Store, say=print, *, sleep=None, monotonic=No
                 if r.status_code == 200:
                     tok = r.json()
                     break
+                if _gateway_blocked(r):
+                    raise LoginError(GATEWAY_HINT)
                 code = _error_code(r)
                 if code == "authorization_pending":
                     continue
@@ -109,6 +139,9 @@ def device_login(base: str, store: Store, say=print, *, sleep=None, monotonic=No
         raise LoginError("server did not issue a refresh token")
     store.set(base, "dpop_key", dpop.key_to_pem(key))
     store.set(base, "refresh_token", tok["refresh_token"])
+    for env, field in zip(_ACCESS_ENV, ("access_id", "access_secret")):  # remember them so IDE configs need no secrets
+        if os.environ.get(env):
+            store.set(base, field, os.environ[env])
     store.set_base_url(base)
 
 
@@ -147,7 +180,11 @@ class Api:
         r = self._send("POST", url, content=body, headers={"Content-Type": "application/json",
                                                            "DPoP": dpop.make_proof(key, "POST", url, body=body)})
         if r.status_code in (400, 401, 403):
+            keep = {f: self.store.get(self.base, f) for f in ("access_id", "access_secret")}
             self.store.delete(self.base)
+            for f, v in keep.items():
+                if v:
+                    self.store.set(self.base, f, v)
             self._access = None
             raise NotLoggedIn("your Vyntryx session expired or was revoked: run `vyntryx-mcp login`")
         data = self._parse(r)
@@ -156,10 +193,14 @@ class Api:
             self.store.set(self.base, "refresh_token", data["refresh_token"])
 
     def _send(self, method, url, **kw) -> httpx.Response:
+        kw["headers"] = {**access_headers(self.store, self.base), **(kw.get("headers") or {})}
         try:
-            return self._http.request(method, url, **kw)
+            r = self._http.request(method, url, **kw)
         except httpx.HTTPError as e:
             raise ApiError(0, f"cannot reach {self.base} ({type(e).__name__})") from None
+        if _gateway_blocked(r):
+            raise ApiError(r.status_code, GATEWAY_HINT)
+        return r
 
     @staticmethod
     def _parse(r: httpx.Response):

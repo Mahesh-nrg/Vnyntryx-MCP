@@ -2,10 +2,12 @@
 
 Written 2026-10-27 from the official pages linked in each section; check them if an IDE update changes the syntax. The connector is installed on demand by `uvx` (nothing to pre-install beyond `uv`).
 
-**First, sign in once in a terminal** (the IDE cannot show the device code):
+**First, sign in once in a terminal** (the IDE cannot show the device code). The connector address is protected by an access
+token your administrator issues: export `VYNTRYX_ACCESS_CLIENT_ID` and `VYNTRYX_ACCESS_CLIENT_SECRET` first; they are then remembered
+in your OS keyring, so the IDE snippets below need no secrets:
 
 ```bash
-uvx --from git+https://github.com/Mahesh-nrg/Vnyntryx-MCP vyntryx-mcp login --url https://testa4.vyntryx.com
+uvx --from git+https://github.com/Mahesh-nrg/Vnyntryx-MCP vyntryx-mcp login --url https://mcpa.vyntryx.com
 ```
 
 `VYNTRYX_URL` in the snippets below is optional after that: the server you logged in to is remembered. If you set it, it must
@@ -17,14 +19,14 @@ Source: https://code.claude.com/docs/en/mcp (fetched 2026-10-27)
 ```bash
 claude mcp add --transport stdio vyntryx -- uvx --from git+https://github.com/Mahesh-nrg/Vnyntryx-MCP vyntryx-mcp
 # with an env var: put --transport between --env and the name, or the name is read as another KEY=value
-claude mcp add --env VYNTRYX_URL=https://testa4.vyntryx.com --transport stdio vyntryx -- uvx --from git+https://github.com/Mahesh-nrg/Vnyntryx-MCP vyntryx-mcp
+claude mcp add --env VYNTRYX_URL=https://mcpa.vyntryx.com --transport stdio vyntryx -- uvx --from git+https://github.com/Mahesh-nrg/Vnyntryx-MCP vyntryx-mcp
 ```
 Project-shared file `.mcp.json` (scope `project`; Claude Code asks before using it). Entries without `type` are stdio:
 ```json
 { "mcpServers": { "vyntryx": {
     "command": "uvx",
     "args": ["--from", "git+https://github.com/Mahesh-nrg/Vnyntryx-MCP", "vyntryx-mcp"],
-    "env": { "VYNTRYX_URL": "https://testa4.vyntryx.com" } } } }
+    "env": { "VYNTRYX_URL": "https://mcpa.vyntryx.com" } } } }
 ```
 Verified on the page: syntax `claude mcp add [options] <name> -- <command> [args...]`; `--transport`, `--env`/`-e`, `--scope`
 (`local` default in `~/.claude.json`, `project` in `.mcp.json`, `user`); `add-json <name> '<json>'` takes the object inside
@@ -45,7 +47,7 @@ startup_timeout_sec = 30     # default 10: a first `uvx` run downloads the packa
 tool_timeout_sec = 300       # default 60: uploading a large project can take longer
 
 [mcp_servers.vyntryx.env]
-VYNTRYX_URL = "https://testa4.vyntryx.com"
+VYNTRYX_URL = "https://mcpa.vyntryx.com"
 ```
 Verified on the page: top-level key is `mcp_servers`; stdio fields `command`, `args`, `env`, `env_vars`, `cwd`,
 `startup_timeout_sec` (default 10), `tool_timeout_sec` (default 60); `codex mcp add <name> [--env K=V] -- <cmd>`.
@@ -64,7 +66,7 @@ Source: https://code.visualstudio.com/docs/agents/reference/mcp-configuration (f
       "type": "stdio",
       "command": "uvx",
       "args": ["--from", "git+https://github.com/Mahesh-nrg/Vnyntryx-MCP", "vyntryx-mcp"],
-      "env": { "VYNTRYX_URL": "https://testa4.vyntryx.com" }
+      "env": { "VYNTRYX_URL": "https://mcpa.vyntryx.com" }
     }
   }
 }

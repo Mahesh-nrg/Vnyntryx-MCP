@@ -7,10 +7,12 @@ thread in the Vyntryx web UI.
 > IDE scans are **static analysis (SAST) only**. Nothing in this connector can start active / DAST testing.
 
 ```
-Your IDE  --(stdio)-->  vyntryx-mcp (runs on your machine)  --(HTTPS)-->  https://testa4.vyntryx.com
+Your IDE  --(stdio)-->  vyntryx-mcp (runs on your machine)  --(HTTPS)-->  https://mcpa.vyntryx.com
 ```
 
 ## What you need
+- An **access ID and access secret** for the connector address, issued to you by your Vyntryx administrator (the connector
+  address is not open to the public). Treat the secret like a password.
 - A **Vyntryx account** whose role is *pentester*, *team lead* or *manager*. Ask your Vyntryx administrator if the login below
   says your role is not allowed. **No password or key is ever stored in, or needed from, this repository.**
 - [`uv`](https://docs.astral.sh/uv/getting-started/installation/) (it also fetches Python 3.11+ for you).
@@ -18,11 +20,16 @@ Your IDE  --(stdio)-->  vyntryx-mcp (runs on your machine)  --(HTTPS)-->  https:
 
 ## 1. Sign in (once, in a terminal)
 ```bash
-uvx --from git+https://github.com/Mahesh-nrg/Vnyntryx-MCP vyntryx-mcp login --url https://testa4.vyntryx.com
+export VYNTRYX_ACCESS_CLIENT_ID="<your access ID>"
+export VYNTRYX_ACCESS_CLIENT_SECRET="<your access secret>"
+uvx --from git+https://github.com/Mahesh-nrg/Vnyntryx-MCP vyntryx-mcp login --url https://mcpa.vyntryx.com
 ```
 1. The command prints a web address and a short code (for example `ABCD-EFGH`).
 2. Open the address in your browser, sign in to Vyntryx the way you normally do, and confirm that the code matches.
-3. The terminal says **Logged in**. The server you signed in to is remembered, so IDE settings need no address.
+3. The terminal says **Logged in**. The server and your access ID/secret are remembered securely on this computer (OS keyring),
+   so IDE settings need neither.
+
+The browser step happens on your normal Vyntryx site; the code is only valid for 10 minutes.
 
 Useful commands (same prefix as above): `vyntryx-mcp status` (who am I), `vyntryx-mcp logout` (forget this machine),
 `vyntryx-mcp preview <folder>` (list exactly what an upload would contain, sends nothing).
@@ -61,7 +68,7 @@ Ask your assistant in plain words, for example:
 - "List the high and critical findings." / "Show me finding `<uuid>` in full."
 - "Which findings are related to this one, and what would fixing it affect?"
 
-Every finding has a stable **UUID**. Open https://testa4.vyntryx.com in your browser to see the same scan as a chat-style
+Every finding has a stable **UUID**. Open the Vyntryx web app (your usual address) in your browser to see the same scan as a chat-style
 session, with the findings, relationships and report tools.
 
 | Tool | What it does |
@@ -90,7 +97,8 @@ session, with the findings, relationships and report tools.
 | "not logged in" / tools say login required | Run the sign-in command in step 1, then restart the IDE's MCP server. |
 | "role is not allowed" | Your Vyntryx role cannot use IDE scans; ask your administrator. |
 | Code expired | The code is valid for 10 minutes; run the login command again. |
-| Cannot reach the server / 403 | Check you can open https://testa4.vyntryx.com in a browser from the same network; contact Vyntryx support. |
+| "blocked by the access gateway" / 403 | The access ID or secret is missing, wrong or revoked: set `VYNTRYX_ACCESS_CLIENT_ID` / `VYNTRYX_ACCESS_CLIENT_SECRET`, run the login again, or ask your administrator for new ones. |
+| Cannot reach the server | Check your network and proxy settings; contact your Vyntryx administrator. |
 | First start times out in Codex | Raise `startup_timeout_sec` (see docs/clients.md). |
 
 ## Support and security

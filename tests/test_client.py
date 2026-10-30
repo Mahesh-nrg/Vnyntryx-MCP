@@ -145,3 +145,41 @@ def test_tokens_never_logged_or_printed(fake, store, caplog, capsys):
     out = capsys.readouterr()
     for secret in ("refresh-secret-1", "access-1", "access-2"):
         assert secret not in caplog.text and secret not in out.out and secret not in out.err
+
+
+# ---- Cloudflare Access service token (dedicated MCP hostname) --------------------------------------------------------
+def test_access_headers_sent_on_every_call_remembered_and_survive_session_expiry(fake, store, monkeypatch):
+    monkeypatch.setenv("VYNTRYX_ACCESS_CLIENT_ID", "id-1")
+    monkeypatch.setenv("VYNTRYX_ACCESS_CLIENT_SECRET", "sec-1")
+    login(fake, store)
+    assert all(r["headers"].get("CF-Access-Client-Id") == "id-1" and r["headers"].get("CF-Access-Client-Secret") == "sec-1"
+               for r in fake.requests)
+    assert store.get(fake.base, "access_id") == "id-1" and store.get(fake.base, "access_secret") == "sec-1"
+    monkeypatch.delenv("VYNTRYX_ACCESS_CLIENT_ID")  # IDE config holds no secrets: the stored copy is used
+    monkeypatch.delenv("VYNTRYX_ACCESS_CLIENT_SECRET")
+    fake.routes[("GET", "/api/mcp/ping")] = lambda r: (200, {"ok": True})
+    Api(fake.base, store).get("/api/mcp/ping")
+    assert fake.requests[-1]["headers"]["CF-Access-Client-Id"] == "id-1"
+    fake.refresh_token = "rotated-elsewhere"
+    with pytest.raises(NotLoggedIn):
+        Api(fake.base, store).get("/api/mcp/ping")
+    assert store.get(fake.base, "refresh_token") is None and store.get(fake.base, "access_id") == "id-1"
+
+
+def test_no_access_headers_when_not_configured(fake, store, monkeypatch):
+    for v in ("VYNTRYX_ACCESS_CLIENT_ID", "VYNTRYX_ACCESS_CLIENT_SECRET"):
+        monkeypatch.delenv(v, raising=False)
+    login(fake, store)
+    assert not any("CF-Access-Client-Id" in r["headers"] for r in fake.requests)
+
+
+@pytest.mark.parametrize("body", [{"detail": "Access denied"}])
+def test_gateway_block_gives_a_clear_message_at_login(fake, store, body):
+    fake.device_script = [(403, body)]
+    original = fake.handle
+
+    def handle(req):
+        return (403, body) if req["path"] == "/api/auth/device/code" else original(req)
+    fake.handle = handle
+    with pytest.raises(LoginError, match="VYNTRYX_ACCESS_CLIENT_ID"):
+        login(fake, store)
